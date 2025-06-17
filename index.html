@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Spam Classifier</title>
+    <style>
+        :root {
+            --spam-base-color: 255, 204, 204; /* light red */
+            --ham-base-color: 221, 221, 255;  /* light blue */
+        }
+
+        .dark-mode {
+            background-color: #121212;
+            color: #f1f1f1;
+        }
+
+        body { font-family: Arial; max-width: 600px; margin: auto; padding: 40px; }
+
+        input, button, textarea {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+        }
+
+        #result { margin-top: 20px; font-weight: bold; }
+
+        .dark-mode textarea,
+        .dark-mode button {
+            background-color: #333;
+            color: white;
+            border: 1px solid #555;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        #explanation span {
+            display: inline-block;
+            padding: 2px 5px;
+            margin: 2px;
+            border-radius: 4px;
+            color: black;
+        }
+
+        .dark-mode #explanation span {
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>Spam Message Classifier</h1>
+    <button onclick="toggleDarkMode()">🌙 Toggle Dark Mode</button>
+    <form id="form">
+        <textarea id="message" placeholder="Type your message here..." rows="6"></textarea>
+        <button type="submit">Check Message</button>
+    </form>
+    <div id="result"></div>
+    <div id="explanation"></div>
+    <div id="loading" style="display:none;">Checking message... 🔍</div>
+
+    <script>
+        const form = document.getElementById('form');
+        const resultDiv = document.getElementById('result');
+        const explanationDiv = document.getElementById('explanation');
+        const loadingDiv = document.getElementById('loading');
+
+        function normalizeScores(wordScores) {
+            let maxAbs = 0;
+            for (const [, score] of wordScores) {
+                if (Math.abs(score) > maxAbs) maxAbs = Math.abs(score);
+            }
+            if (maxAbs === 0) return wordScores;
+            return wordScores.map(([word, score]) => [word, score / maxAbs]);
+        }
+
+        function getHighlightColor(score) {
+            const isDark = document.body.classList.contains('dark-mode');
+            if (score > 0) {
+                // red-ish, opacity proportional to score
+                return `rgba(var(--spam-base-color), ${score.toFixed(2)})`;
+            } else {
+                // blue-ish, opacity proportional to abs(score)
+                return `rgba(var(--ham-base-color), ${Math.abs(score).toFixed(2)})`;
+            }
+        }
+
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const message = document.getElementById('message').value.trim();
+
+            resultDiv.innerText = '';
+            explanationDiv.innerHTML = '';
+            loadingDiv.style.display = 'block';
+
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    resultDiv.innerText = `Prediction: ${data.label.toUpperCase()} (Confidence: ${data.confidence}%)`;
+
+                    let wordScores = data.explanation || [];
+
+                    // Sort descending by absolute score
+                    wordScores.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+
+                    // Pick top 5 words
+                    wordScores = wordScores.slice(0, 5);
+
+                    // Normalize scores
+                    wordScores = normalizeScores(wordScores);
+
+                    if (wordScores.length > 0) {
+                        explanationDiv.innerHTML = "<h3>Top contributing words:</h3>";
+                        explanationDiv.innerHTML += wordScores.map(([word, score]) =>
+                            `<span style="background-color: ${getHighlightColor(score)}">${word} (${score.toFixed(2)})</span>`
+                        ).join(' ');
+                    } else {
+                        explanationDiv.innerHTML = "<i>No strong contributing words found.</i>";
+                    }
+                } else {
+                    resultDiv.innerText = `Error: ${data.error}`;
+                }
+            } catch (error) {
+                resultDiv.innerText = 'An unexpected error occurred.';
+            } finally {
+                loadingDiv.style.display = 'none';
+            }
+        });
+
+        function toggleDarkMode() {
+            document.body.classList.toggle("dark-mode");
+        }
+    </script>
+</body>
+</html>
